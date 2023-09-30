@@ -55,18 +55,10 @@ Resources:
     Type: 'AWS::S3::Bucket'
     DeletionPolicy: Retain
     Properties:
-      VersioningConfiguration:
-        Status: Enabled
-      AccessControl: LogDeliveryWrite
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
               SSEAlgorithm: AES256
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        BlockPublicPolicy: true
-        IgnorePublicAcls: true
-        RestrictPublicBuckets: true
       LifecycleConfiguration:
         Rules:
           - ExpirationInDays: !Ref LifecycleExpirationDays
@@ -83,6 +75,8 @@ Resources:
           Value: AWS Logging Bucket
         - Key: Purpose
           Value: Security
+      VersioningConfiguration:
+        Status: Enabled
   AWSLoggingBucketPolicy:
     Type: 'AWS::S3::BucketPolicy'
     DeletionPolicy: Retain
@@ -97,9 +91,9 @@ Resources:
             Effect: Deny
             Principal: '*'
             Action: 's3:*'
-            Resource: !Join
+            Resource: !Join 
               - ''
-              - - !GetAtt
+              - - !GetAtt 
                   - AWSLoggingBucket
                   - Arn
                 - /*
@@ -110,52 +104,42 @@ Resources:
             Effect: Deny
             Principal: '*'
             Action: 's3:Delete*'
-            Resource: !Join
+            Resource: !Join 
               - ''
-              - - !GetAtt
+              - - !GetAtt 
                   - AWSLoggingBucket
                   - Arn
                 - /*
-          - Sid: DenyUnEncryptedObjectUploads
-            Effect: Deny
-            Principal: '*'
-            Action: 's3:PutObject'
-            Resource: !Join
+          - Sid: AllowServerAccessLogging
+            Action:
+              - 's3:PutObject'
+            Effect: Allow
+            Principal:
+              Service: logging.s3.amazonaws.com
+            Resource: !Join 
               - ''
-              - - !GetAtt
-                  - AWSLoggingBucket
-                  - Arn
+              - - 'arn:aws:s3:::'
+                - !Ref AWSLoggingBucket
                 - /*
             Condition:
-              StringNotEquals:
-                's3:x-amz-server-side-encryption': AES256
-          - Sid: AWSLoggingBucketTransport
-            Effect: Deny
-            Principal: "*"
-            Action: 's3:*'
-            Resource:
-              - !GetAtt 'AWSLoggingBucket.Arn'
-              - !Sub '${AWSLoggingBucket.Arn}/*'
-            Condition:
-              Bool:
-                'aws:SecureTransport': false
+              ArnLike:
+                'aws:SourceArn': !GetAtt 
+                  - AWSCloudTrailBucket
+                  - Arn
+              StringEquals:
+                'aws:SourceAccount': !Sub '${AWS::AccountId}'
   AWSCloudTrailBucket:
     Type: 'AWS::S3::Bucket'
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      AccessControl: LogDeliveryWrite
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
               SSEAlgorithm: AES256
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        BlockPublicPolicy: true
-        IgnorePublicAcls: true
-        RestrictPublicBuckets: true
       LoggingConfiguration:
         LogFilePrefix: cloudtraillogs-
+        DestinationBucketName: !Ref AWSLoggingBucket
       Tags:
         - Key: Name
           Value: AWS CloudTrail Bucket
@@ -177,7 +161,7 @@ Resources:
             Principal:
               Service: cloudtrail.amazonaws.com
             Action: 's3:GetBucketAcl'
-            Resource: !GetAtt
+            Resource: !GetAtt 
               - AWSCloudTrailBucket
               - Arn
           - Sid: AWSCloudTrailWrite20150319
@@ -185,32 +169,22 @@ Resources:
             Principal:
               Service: cloudtrail.amazonaws.com
             Action: 's3:PutObject'
-            Resource: !Join
+            Resource: !Join 
               - ''
-              - - !GetAtt
+              - - !GetAtt 
                   - AWSCloudTrailBucket
                   - Arn
                 - /*
             Condition:
               StringEquals:
                 's3:x-amz-acl': bucket-owner-full-control
-          - Sid: AAWSCloudTrailBucketTransport
-            Effect: Deny
-            Principal: "*"
-            Action: 's3:*'
-            Resource:
-              - !GetAtt 'AWSCloudTrailBucket.Arn'
-              - !Sub '${AWSCloudTrailBucket.Arn}/*'
-            Condition:
-              Bool:
-                'aws:SecureTransport': false
           - Sid: DenyUnEncryptedObjectUploads
             Effect: Deny
             Principal: '*'
             Action: 's3:*'
-            Resource: !Join
+            Resource: !Join 
               - ''
-              - - !GetAtt
+              - - !GetAtt 
                   - AWSCloudTrailBucket
                   - Arn
                 - /*
@@ -221,9 +195,9 @@ Resources:
             Effect: Deny
             Principal: '*'
             Action: 's3:Delete*'
-            Resource: !Join
+            Resource: !Join 
               - ''
-              - - !GetAtt
+              - - !GetAtt 
                   - AWSCloudTrailBucket
                   - Arn
                 - /*
@@ -231,59 +205,24 @@ Resources:
             Effect: Deny
             Principal: '*'
             Action: 's3:PutObject'
-            Resource: !Join
+            Resource: !Join 
               - ''
-              - - !GetAtt
+              - - !GetAtt 
                   - AWSCloudTrailBucket
                   - Arn
                 - /*
             Condition:
               StringNotEquals:
                 's3:x-amz-server-side-encryption': AES256
-  SNSSecurityAlarmTopicKMS:
-    Metadata:
-      cfn-lint:
-        config:
-          ignore_checks: [ EIAMPolicyActionWildcard ]
-          ignore_reasons:
-            EIAMPolicyActionWildcard: >-
-              Action This is required as it is for root key management.
-    Type: AWS::KMS::Key
-    Properties:
-      Description: "KMS Key used to encrypt SNS"
-      EnableKeyRotation: true
-      PendingWindowInDays: 20
-      KeyPolicy:
-        Version: 2012-10-17
-        Id: key-default-1
-        Statement:
-          - Sid: Enable IAM User Permissions
-            Effect: Allow
-            Principal:
-              AWS: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:root
-            Action: kms:*
-            Resource: '*'
-          - Sid: Enable usage for SNS
-            Effect: Allow
-            Principal:
-              AWS: sns.amazonaws.com
-            Action:
-              - 'kms:Decrypt'
-              - 'kms:GenerateDataKey'
-            Resource: '*'
-            Condition:
-              ArnLike:
-                aws:SourceArn: 'arn:aws:sns::::'
   SNSSecurityAlarmTopic:
     Type: 'AWS::SNS::Topic'
     Properties:
-      KmsMasterKeyId: !Ref SNSSecurityAlarmTopicKMS
       Subscription:
         - Endpoint: !Ref SNSAlarmEmail
           Protocol: email
   SNSSecurityAlarmTopicPolicy:
     Type: AWS::SNS::TopicPolicy
-    Properties:
+    Properties: 
       PolicyDocument:
           Version: 2012-10-17
           Id: AWSCloudTrailAccessToTopic
@@ -294,7 +233,7 @@ Resources:
                 Service: cloudtrail.amazonaws.com
               Action: 'SNS:Publish'
               Resource: !Ref SNSSecurityAlarmTopic
-      Topics:
+      Topics: 
         - !Ref SNSSecurityAlarmTopic
   CloudTrailLogGroup:
     Type: 'AWS::Logs::LogGroup'
@@ -321,16 +260,16 @@ Resources:
             Statement:
               - Effect: Allow
                 Action: 's3:ListBucket'
-                Resource: !GetAtt
+                Resource: !GetAtt 
                   - AWSLoggingBucket
                   - Arn
               - Effect: Allow
                 Action:
                   - 's3:PutObject'
                   - 's3:GetObject'
-                Resource: !Join
+                Resource: !Join 
                   - ''
-                  - - !GetAtt
+                  - - !GetAtt 
                       - AWSLoggingBucket
                       - Arn
                     - /*
@@ -355,13 +294,13 @@ Resources:
               - Sid: AWSCloudTrailCreateLogStream20141101
                 Effect: Allow
                 Action: 'logs:CreateLogStream'
-                Resource: !GetAtt
+                Resource: !GetAtt 
                   - CloudTrailLogGroup
                   - Arn
               - Sid: AWSCloudTrailPutLogEvents20141101
                 Effect: Allow
                 Action: 'logs:PutLogEvents'
-                Resource: !GetAtt
+                Resource: !GetAtt 
                   - CloudTrailLogGroup
                   - Arn
           PolicyName: cloudwatch-limited-actions
@@ -376,10 +315,10 @@ Resources:
     Properties:
       IsLogging: true
       S3BucketName: !Ref AWSCloudTrailBucket
-      CloudWatchLogsLogGroupArn: !GetAtt
+      CloudWatchLogsLogGroupArn: !GetAtt 
         - CloudTrailLogGroup
         - Arn
-      CloudWatchLogsRoleArn: !GetAtt
+      CloudWatchLogsRoleArn: !GetAtt 
         - CloudWatchRole
         - Arn
       EnableLogFileValidation: true
